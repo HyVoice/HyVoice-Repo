@@ -1,93 +1,32 @@
-# .github/workflows/deploy-cloudflare.yml
+# .github/workflows/deploy-simple.yml
 name: Deploy to Cloudflare Pages
 
 on:
   push:
     branches: ["main"]
-  pull_request:
-    branches: ["main"]
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      deployments: write
-    
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
       
-      # Build step - automatically detects your project type
       - name: Build
-        id: build
         run: |
-          echo "🔍 Detecting project type..."
-          
-          # Create build output directory
           mkdir -p public
           
-          # CASE 1: Node.js with build script
-          if [ -f "package.json" ]; then
-            echo "📦 Node.js project detected"
-            npm ci
-            if grep -q '"build"' package.json; then
-              echo "🏗️ Running npm run build"
-              npm run build
-              # Different frameworks output to different directories
-              if [ -d "dist" ]; then
-                cp -r dist/* public/ 2>/dev/null || true
-              elif [ -d "build" ]; then
-                cp -r build/* public/ 2>/dev/null || true
-              elif [ -d "out" ]; then
-                cp -r out/* public/ 2>/dev/null || true
-              fi
-            else
-              echo "📄 No build script, copying static files"
-              cp -r *.html *.css *.js public/ 2>/dev/null || true
-            fi
+          # Simply copy everything to public
+          cp -r * public/ 2>/dev/null || true
           
-          # CASE 2: Static HTML site
-          elif [ -f "index.html" ] || [ -f "Index.html" ] || [ -f "INDEX.HTML" ]; then
-            echo "📄 Static HTML site detected"
-            cp -r *.html *.css *.js images/ css/ js/ public/ 2>/dev/null || true
-          
-          # CASE 3: Hugo site
-          elif [ -f "config.toml" ] || [ -f "config.yaml" ] || [ -f "config.yml" ]; then
-            echo "⚡ Hugo site detected"
-            wget https://github.com/gohugoio/hugo/releases/download/v0.120.4/hugo_0.120.4_Linux-64bit.tar.gz
-            tar -xzf hugo_0.120.4_Linux-64bit.tar.gz hugo
-            ./hugo --minify
-            cp -r public/* public/ 2>/dev/null || true
-          
-          # CASE 4: Jekyll site
-          elif [ -f "_config.yml" ] || [ -f "Gemfile" ]; then
-            echo "💎 Jekyll site detected"
-            gem install bundler jekyll
-            bundle install
-            bundle exec jekyll build
-            cp -r _site/* public/ 2>/dev/null || true
-          
-          # CASE 5: Create default if nothing found
-          else
-            echo "⚠️ No specific framework detected"
-            echo "<h1>HyVoice-Repo</h1><p>Deployed via Cloudflare Pages</p>" > public/index.html
+          # Ensure index.html exists
+          if [ ! -f "public/index.html" ]; then
+            echo "<h1>HyVoice-Repo</h1><p>Live!</p>" > public/index.html
           fi
-          
-          # List what was built
-          echo "📁 Built files:"
-          ls -la public/ 2>/dev/null || echo "No public directory created"
       
-      # Deploy to Cloudflare Pages
-      - name: Publish to Cloudflare Pages
+      - name: Deploy
         uses: cloudflare/pages-action@v1
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           projectName: hyvoice-repo
           directory: public
-          gitHubToken: ${{ secrets.GITHUB_TOKEN }}
-          # Production branch
-          branch: main
-          # Enable preview deployments on PRs
-          wranglerVersion: '3'
