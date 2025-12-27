@@ -1,76 +1,93 @@
-# .github/workflows/deploy-netlify.yml
-name: Deploy to Netlify
+# .github/workflows/deploy-cloudflare.yml
+name: Deploy to Cloudflare Pages
 
 on:
   push:
-    branches: [main]
+    branches: ["main"]
   pull_request:
-    branches: [main]
+    branches: ["main"]
 
 jobs:
-  build-and-deploy:
+  deploy:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      deployments: write
     
     steps:
-      - name: Checkout code
+      - name: Checkout
         uses: actions/checkout@v4
       
-      # Detect and build your project
-      - name: Build project
+      # Build step - automatically detects your project type
+      - name: Build
+        id: build
         run: |
           echo "🔍 Detecting project type..."
           
-          # If it's a Node.js project
+          # Create build output directory
+          mkdir -p public
+          
+          # CASE 1: Node.js with build script
           if [ -f "package.json" ]; then
             echo "📦 Node.js project detected"
             npm ci
-            
-            # Check for build script
             if grep -q '"build"' package.json; then
               echo "🏗️ Running npm run build"
               npm run build
-              echo "✅ Build completed"
+              # Different frameworks output to different directories
+              if [ -d "dist" ]; then
+                cp -r dist/* public/ 2>/dev/null || true
+              elif [ -d "build" ]; then
+                cp -r build/* public/ 2>/dev/null || true
+              elif [ -d "out" ]; then
+                cp -r out/* public/ 2>/dev/null || true
+              fi
             else
-              echo "⚠️ No build script found, creating default dist folder"
-              mkdir -p dist
-              # Copy common web files
-              cp -r *.html *.css *.js public/ dist/ 2>/dev/null || true
+              echo "📄 No build script, copying static files"
+              cp -r *.html *.css *.js public/ 2>/dev/null || true
             fi
           
-          # If it's a Python/Flask/Django project
-          elif [ -f "requirements.txt" ]; then
-            echo "🐍 Python project detected"
-            echo "⚠️ For Python backends, use 'netlify functions' or separate backend hosting"
-            mkdir -p dist
-            echo "<h1>Python Backend - Deploy API separately</h1>" > dist/index.html
+          # CASE 2: Static HTML site
+          elif [ -f "index.html" ] || [ -f "Index.html" ] || [ -f "INDEX.HTML" ]; then
+            echo "📄 Static HTML site detected"
+            cp -r *.html *.css *.js images/ css/ js/ public/ 2>/dev/null || true
           
-          # If it's a static site
+          # CASE 3: Hugo site
+          elif [ -f "config.toml" ] || [ -f "config.yaml" ] || [ -f "config.yml" ]; then
+            echo "⚡ Hugo site detected"
+            wget https://github.com/gohugoio/hugo/releases/download/v0.120.4/hugo_0.120.4_Linux-64bit.tar.gz
+            tar -xzf hugo_0.120.4_Linux-64bit.tar.gz hugo
+            ./hugo --minify
+            cp -r public/* public/ 2>/dev/null || true
+          
+          # CASE 4: Jekyll site
+          elif [ -f "_config.yml" ] || [ -f "Gemfile" ]; then
+            echo "💎 Jekyll site detected"
+            gem install bundler jekyll
+            bundle install
+            bundle exec jekyll build
+            cp -r _site/* public/ 2>/dev/null || true
+          
+          # CASE 5: Create default if nothing found
           else
-            echo "📄 Static HTML project detected"
-            mkdir -p dist
-            # Copy all web files
-            cp -r *.html *.css *.js images/ css/ js/ dist/ 2>/dev/null || true
-            # If no index.html, create one
-            if [ ! -f "dist/index.html" ]; then
-              echo "<h1>HyVoice-Repo</h1><p>Deployed via Netlify</p>" > dist/index.html
-            fi
+            echo "⚠️ No specific framework detected"
+            echo "<h1>HyVoice-Repo</h1><p>Deployed via Cloudflare Pages</p>" > public/index.html
           fi
           
-          echo "📁 Build output in 'dist/' folder"
-          ls -la dist/ 2>/dev/null || echo "No dist folder created"
+          # List what was built
+          echo "📁 Built files:"
+          ls -la public/ 2>/dev/null || echo "No public directory created"
       
-      # Deploy to Netlify
-      - name: Deploy to Netlify
-        uses: nwtgck/actions-netlify@v3.0
+      # Deploy to Cloudflare Pages
+      - name: Publish to Cloudflare Pages
+        uses: cloudflare/pages-action@v1
         with:
-          publish-dir: './dist'
-          production-branch: main
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-          deploy-message: "Deploy from GitHub Actions"
-          enable-pull-request-comment: true
-          enable-commit-comment: true
-          overwrites-pull-request-comment: true
-        env:
-          NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
-          NETLIFY_SITE_ID: ${{ secrets.NETLIFY_SITE_ID }}
-        timeout-minutes: 1
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          projectName: hyvoice-repo
+          directory: public
+          gitHubToken: ${{ secrets.GITHUB_TOKEN }}
+          # Production branch
+          branch: main
+          # Enable preview deployments on PRs
+          wranglerVersion: '3'
